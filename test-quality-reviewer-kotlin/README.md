@@ -1,10 +1,10 @@
 # gradle-llm-test-reviewer
 
-Una tarea de Gradle que usa un LLM para revisar la **calidad** de los tests unitarios, no solo su cobertura. Detecta aserciones tautológicas, exceso de mocking, nombres de test poco descriptivos y casos límite ausentes — antes de que lleguen a una code review humana.
+A Gradle task that uses an LLM to review the **quality** of unit tests, not just their coverage. It flags tautological assertions, over-mocking, vague test names, and missing edge cases — before they reach a human code review.
 
-## El problema
+## The problem
 
-Un test puede tener 100% de cobertura de línea y no proteger nada:
+A test can have 100% line coverage and protect nothing:
 
 ```kotlin
 @Test
@@ -15,56 +15,56 @@ fun `should process refund`() {
 }
 ```
 
-Este test "pasa" y "cubre" la línea, pero `processRefund` nunca devuelve `null` por firma, así que la aserción no puede fallar jamás. Herramientas de cobertura como JaCoCo no lo detectan. El mutation testing (PIT) sí lo detectaría, pero solo te dice *que* el mutante sobrevivió — no *por qué* el test es débil ni cómo arreglarlo.
+This test "passes" and "covers" the line, but `processRefund` never returns `null` by signature, so the assertion can never fail. Coverage tools like JaCoCo won't catch this. Mutation testing (PIT) would catch it, but it only tells you *that* the mutant survived — not *why* the test is weak or how to fix it.
 
-## Qué hace
+## What it does
 
-Por cada test modificado en un PR, la tarea:
+For each test file changed in a PR, the task:
 
-1. Lee el archivo de test y la clase que prueba.
-2. Se los pasa a un LLM (Claude, vía la API de Anthropic) junto con una rúbrica fija.
-3. Recibe un veredicto en JSON: puntuación 0-100, lista de issues con severidad, y un resumen.
-4. Falla el build si la puntuación cae por debajo de un umbral configurable.
+1. Reads the test file and the class it tests.
+2. Sends both to an LLM (Claude, via the Anthropic API) along with a fixed rubric.
+3. Gets back a JSON verdict: a 0-100 score, a list of issues with severity, and a summary.
+4. Fails the build if the score falls below a configurable threshold.
 
-## Ejemplo real
+## Real example
 
-Contra la misma clase `RefundService`, comparamos un test débil y uno con tres casos de comportamiento (rechazo por importe negativo, éxito con verificación de ledger, fallo del gateway). Esta es la salida real de Claude, sin editar:
+Against the same `RefundService` class, we compared a weak test and one with three behavioural cases (rejection on negative amount, success with ledger verification, gateway failure). This is Claude's actual output, unedited:
 
-**Test débil → 8/100**
+**Weak test → 8/100**
 
 > "The single test provides almost no value: its only assertion is untriggerable, no behaviour or return-value properties are verified, collaborator interactions are unchecked, and none of the three distinct code paths (invalid amount, gateway failure, success) are deliberately targeted."
 
-Issues de severidad alta: aserción tautológica, cero verificación de interacción con los mocks, nombre de test que no describe comportamiento, cero casos límite cubiertos.
+High-severity issues: tautological assertion, zero verification of mock interactions, a test name that describes the method rather than a behaviour, zero edge cases covered.
 
-**Test robusto → 72/100**
+**Robust test → 72/100**
 
 > "The three tests cover the main happy path and the two primary failure branches with appropriate mock usage and meaningful assertions, but miss the zero-amount boundary, a ledger-never-called assertion on rejection, transaction ID propagation on success, and gateway exception handling."
 
-Lo interesante de este segundo caso: el modelo señaló que **ningún test cubre qué pasa si `gateway.refund()` lanza una excepción** en vez de devolver un fallo controlado — un caso que no estaba en la rúbrica explícita y que un revisor humano fácilmente pasaría por alto en una revisión rápida.
+What's interesting about this second case: the model flagged that **no test covers what happens if `gateway.refund()` throws an exception** instead of returning a controlled failure — a case that wasn't in the explicit rubric and one a human reviewer would easily miss on a quick pass.
 
-## Uso
+## Usage
 
-### 1. Configura la API key
+### 1. Set the API key
 
 ```bash
-export ANTHROPIC_API_KEY="tu-key-aqui"
+export ANTHROPIC_API_KEY="your-key-here"
 ```
 
-### 2. Ejecuta la revisión
+### 2. Run the review
 
 ```bash
 ./gradlew reviewTestQuality
 ```
 
-Opcional: ajusta el umbral mínimo de puntuación (por defecto 70):
+Optional: adjust the minimum passing score (defaults to 70):
 
 ```bash
 ./gradlew reviewTestQuality -PtestReviewMinScore=60
 ```
 
-### 3. Integra en CI
+### 3. Integrate into CI
 
-Añádelo como paso en tu pipeline, sobre los archivos de test modificados respecto a la rama destino:
+Add it as a pipeline step, scoped to test files changed relative to the target branch:
 
 ```yaml
 - name: Review test quality
@@ -73,23 +73,23 @@ Añádelo como paso en tu pipeline, sobre los archivos de test modificados respe
     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-## Cómo funciona por dentro
+## How it works
 
 ```
-libs.versions.toml          →  build.gradle.kts          →  Prompt + rúbrica
-(versiones centralizadas)      (task reviewTestQuality)     (src/test/resources/prompts/)
+libs.versions.toml          →  build.gradle.kts          →  Prompt + rubric
+(centralised versions)         (reviewTestQuality task)     (src/test/resources/prompts/)
                                         │
                                         ▼
-                              API de Anthropic (Claude)
+                              Anthropic API (Claude)
                                         │
                                         ▼
                          JSON: { score, issues[], summary }
                                         │
                                         ▼
-                          Falla el build si score < umbral
+                           Fails the build if score < threshold
 ```
 
-La rúbrica vive en `src/test/resources/prompts/test-quality-review.txt`, versionada junto al código que evalúa — no enterrada en el build script:
+The rubric lives in `src/test/resources/prompts/test-quality-review.txt`, versioned alongside the code it evaluates — not buried in a build script:
 
 ```
 Score the test file from 0-100 on these criteria:
@@ -99,18 +99,18 @@ Score the test file from 0-100 on these criteria:
 - Edge cases relevant to the method signature are covered
 ```
 
-## Limitaciones
+## Limitations
 
-- **Es una heurística, no una verdad absoluta.** Puede juzgar mal un smoke test intencionadamente simple. Trátalo como una señal para revisar, no como una puerta que sustituye el juicio humano.
-- **No reemplaza el mutation testing.** PIT te dice de forma objetiva si un mutante sobrevivió. Esta herramienta explica probables razones más rápido, pero son complementarias.
-- **Coste y latencia.** Está pensado para correr solo sobre archivos de test modificados en un PR, no sobre toda la suite en cada commit.
+- **It's a heuristic, not ground truth.** It can misjudge an intentionally simple smoke test. Treat it as a prompt for review, not a gate that overrides human judgment on its own.
+- **It doesn't replace mutation testing.** PIT tells you objectively whether a mutant survived. This tool explains likely reasons faster, but the two are complementary.
+- **Cost and latency.** It's meant to run only against test files changed in a PR, not the full suite on every commit.
 
 ## Stack
 
 - Kotlin + Gradle Version Catalogs
-- Spring Boot 4 (proyecto de ejemplo)
-- API de Anthropic (Claude)
+- Spring Boot 4 (example project)
+- Anthropic API (Claude)
 
-## Artículo relacionado
+## Related article
 
-Este repo acompaña al artículo del blog de Parser: *"¿Puede la IA saber si tus tests son realmente buenos? Usando LLMs para revisar la calidad de los tests"*.
+This repo accompanies the Parser blog article: *"Can AI Tell If Your Tests Are Actually Good? Using LLMs to Review Test Quality"*.
