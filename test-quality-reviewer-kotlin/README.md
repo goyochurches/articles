@@ -95,29 +95,7 @@ None of this fails a build. All of it would fail a mutation test — just later,
 
 ### Review workflow
 
-```text
-                 Developer
-                     │
-                     ▼
-              Push Pull Request
-                     │
-                     ▼
-         Static Analysis (SonarQube)
-                     │
-                     ▼
-        Mutation Testing (PIT)
-                     │
-                     ▼
-      LLM Test Quality Review
-                     │
-                     ▼
-        JSON Review Report
-      (score + detected issues)
-                     │
-                     ▼
-      CI passes or fails based on
-         the configured threshold
-```
+![LLM test quality review workflow](./llm_test_review_workflow_diagram.png)
 
 The LLM review is intentionally positioned alongside existing quality verification techniques rather than replacing them. Static analysis identifies deterministic issues, mutation testing measures the effectiveness of the tests, and the LLM provides contextual feedback similar to what a senior engineer would write during a code review.
 
