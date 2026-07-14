@@ -4,11 +4,17 @@ Kotlin · Spring Boot · Testing · AI · DevOps
 
 ## By Gregorio Iglesias
 
+## Abstract
+
+Code coverage is one of the most widely used metrics for assessing test quality, yet it often provides a false sense of confidence. A test suite may achieve high coverage while still failing to detect regressions due to weak assertions, excessive mocking, or missing edge cases. This article explores how Large Language Models (LLMs) can complement traditional quality assurance techniques by acting as automated reviewers for unit tests. Using practical Kotlin and Spring Boot examples, we compare LLM-based review with mutation testing and static analysis, present multiple integration strategies for CI pipelines, and discuss the strengths and limitations of this approach.
+
+**GitHub Repository:** https://github.com/goyochurches/articles/tree/main/test-quality-reviewer-kotlin
+
+## Introduction
+
 A test suite can report 95% coverage and still be worthless. A test that calls a method and does `assertTrue(true == true)`, or one that mocks every collaborator so thoroughly that the only thing under test is the mock itself, still counts as "covered" in a JaCoCo report. Coverage tells you which lines ran. It says nothing about whether that test would actually catch a regression.
 
 In this article we look at using an LLM as a second reviewer for test quality — not to replace mutation testing or code review, but to sit alongside both in CI and flag the specific patterns that quietly erode a test suite's value over time.
-
-## Introduction
 
 While reviewing a legacy Kotlin/Spring Boot service at a client, we noticed a very familiar pattern: high line coverage, low confidence. Tests existed for almost every class, but many followed the same structure: instantiate the object, call a method, check that the returned value wasn't null. No behavioural assertions, no edge cases, no verification of interactions with collaborators.
 
@@ -29,6 +35,14 @@ We wanted something capable of reading a test file the way a senior engineer wou
 - **The solution:** pass the test file and the class under test to an LLM with a structured rubric, and get back a machine-readable verdict a Gradle task can act on.
 
 Neither tool replaces a human reviewer. Mutation testing tells you *where* to look; the LLM review gives a first pass on *why* it's weak, in the same language a reviewer would use in a pull request comment.
+
+### Why use an LLM instead of custom static-analysis rules?
+
+A natural question is why not simply implement these checks as custom SonarQube rules or static-analysis plugins.
+
+The answer is that many of the weaknesses discussed here are semantic rather than syntactic. Determining whether an assertion is meaningful, whether mocks hide the behaviour under test, or whether a test name accurately reflects the scenario requires reasoning across the entire test rather than matching predefined patterns.
+
+Static-analysis rules are excellent at detecting deterministic issues, while LLMs are better suited to contextual judgement. Rather than replacing existing tools, the two approaches complement each other: static analysis identifies objective violations, mutation testing measures whether tests actually detect faults, and an LLM provides reviewer-like feedback on aspects that are difficult to encode as fixed rules.
 
 ## 2. Why coverage numbers hide weak tests
 
@@ -79,6 +93,34 @@ fun `should not throw when processing valid order`() {
 
 None of this fails a build. All of it would fail a mutation test — just later, and only after someone runs one and interprets the result.
 
+### Review workflow
+
+```text
+                 Developer
+                     │
+                     ▼
+              Push Pull Request
+                     │
+                     ▼
+         Static Analysis (SonarQube)
+                     │
+                     ▼
+        Mutation Testing (PIT)
+                     │
+                     ▼
+      LLM Test Quality Review
+                     │
+                     ▼
+        JSON Review Report
+      (score + detected issues)
+                     │
+                     ▼
+      CI passes or fails based on
+         the configured threshold
+```
+
+The LLM review is intentionally positioned alongside existing quality verification techniques rather than replacing them. Static analysis identifies deterministic issues, mutation testing measures the effectiveness of the tests, and the LLM provides contextual feedback similar to what a senior engineer would write during a code review.
+
 ## 3. Building an AI test reviewer
 
 There's more than one way to wire this into the workflow, depending on how much you want it integrated into the build. We look at three, from least to most integration.
@@ -93,7 +135,7 @@ import json, sys, urllib.request
 PROMPT = open("prompts/test-quality-review.txt").read()
 
 def review(test_path: str, source_path: str) -> dict:
-    message = f"{PROMPT}\n\nCLASS UNDER TEST:\n```kotlin\n{open(source_path).read()}\n```\n\n" \
+    message = f"{PROMPT}\n\nCLASS UNDER TEST:\n```kotlin\n{open(source_path).read()}\n```\n\n"
               f"TEST FILE:\n```kotlin\n{open(test_path).read()}\n```"
 
     req = urllib.request.Request(
@@ -307,6 +349,29 @@ Some honest limitations worth stating up front:
 - **Cost and latency add up.** Reviewing every test file on every commit is unnecessary; scoping the task to changed files in a PR keeps it fast and cheap.
 - **It doesn't replace mutation testing.** PIT tells you objectively whether a mutant survived. The LLM review explains likely reasons faster than reading raw mutant output, but the two are complementary, not interchangeable.
 
+## Repository
+
+The complete source code used throughout this article, including the Gradle task, prompts, sample services, and supporting scripts, is available in the accompanying GitHub repository:
+
+https://github.com/goyochurches/articles/tree/main/test-quality-reviewer-kotlin
+
+Readers can use the repository to reproduce the examples presented in this article, adapt the prompts to their own projects, and experiment with different LLM providers or review criteria.
+
 ## Conclusion
 
-Coverage percentage answers "did this line run?" Mutation testing answers "would this test catch a bug here?" An LLM review sits between the two: cheaper and faster than mutation testing, but able to explain *why* a test is weak in the same terms a reviewer would use — tautological assertions, over-mocking, missing edge cases. Used as an advisory check in CI rather than a hard gate, it catches the pattern that's easiest to miss when skimming a PR: tests that pass, cover the line, and prove nothing.
+Coverage percentage answers **"Did this line run?"** Mutation testing answers **"Would this test catch a bug here?"** An LLM review sits between the two: it provides contextual feedback on *why* a test may be weak, highlighting issues such as tautological assertions, excessive mocking, poor behavioural verification, and missing edge cases using language familiar to code reviewers.
+
+This approach is not intended to replace mutation testing or human review. Instead, it complements existing quality assurance techniques by reducing the effort required to identify low-value tests during continuous integration. Used as an advisory quality gate rather than an absolute authority, LLM-based review offers a practical way to improve test quality without significantly increasing build complexity or execution time.
+
+As LLM capabilities continue to improve, they are likely to become another standard tool in the software quality toolbox, helping development teams focus their attention on the tests that matter most while leaving deterministic checks to traditional analysis tools.
+
+## References
+
+1. Jia, Y., & Harman, M. (2011). *An Analysis and Survey of the Development of Mutation Testing*. IEEE Transactions on Software Engineering, 37(5), 649–678.
+2. PIT Mutation Testing Documentation. https://pitest.org/
+3. JaCoCo Java Code Coverage Library. https://www.jacoco.org/jacoco/
+4. SonarQube Documentation. https://docs.sonarsource.com/
+5. Anthropic API Documentation. https://docs.anthropic.com/
+6. Martin Fowler. *The Practical Test Pyramid*. https://martinfowler.com/articles/practical-test-pyramid.html
+7. Google. *Software Engineering at Google*. https://abseil.io/resources/swe-book/
+8. OpenAI. *SWE-Lancer: Can Frontier LLMs Earn $1 Million from Real-World Freelance Software Engineering?* https://arxiv.org/abs/2502.12115
