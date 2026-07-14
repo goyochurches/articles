@@ -114,20 +114,20 @@ PROMPT = open("prompts/test-quality-review.txt").read()
 
 def review(test_path: str, source_path: str) -> dict:
     message = f"{PROMPT}\n\nCLASS UNDER TEST:\n```kotlin\n{open(source_path).read()}\n```\n\n"
-              f"TEST FILE:\n```kotlin\n{open(test_path).read()}\n```"
+    f"TEST FILE:\n```kotlin\n{open(test_path).read()}\n```"
 
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages",
-        data=json.dumps({
-            "model": "claude-sonnet-4-6",
-            "max_tokens": 1000,
-            "messages": [{"role": "user", "content": message}]
-        }).encode(),
-        headers={"x-api-key": "$ANTHROPIC_API_KEY", "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req) as resp:
-        data = json.loads(resp.read())
-    return json.loads(data["content"][0]["text"])
+req = urllib.request.Request(
+    "https://api.anthropic.com/v1/messages",
+    data=json.dumps({
+        "model": "claude-sonnet-4-6",
+        "max_tokens": 1000,
+        "messages": [{"role": "user", "content": message}]
+    }).encode(),
+    headers={"x-api-key": "$ANTHROPIC_API_KEY", "anthropic-version": "2023-06-01", "Content-Type": "application/json"}
+)
+with urllib.request.urlopen(req) as resp:
+    data = json.loads(resp.read())
+return json.loads(data["content"][0]["text"])
 
 if __name__ == "__main__":
     result = review(sys.argv[1], sys.argv[2])
